@@ -13,14 +13,25 @@ import java.net.URL
  *
  * Usage (with coroutines):
  *   BondApi.setApiId("<your-api-id>")  // or setFullUrl(...)
- *   val sim = BondApi.similarity("jlu31", "sganes8")
+ *   val result = BondApi.similarity("jlu31", "sganes8")
+ *   val similarity = result.similarity
+ *   val summary = result.summary
  *
  * Usage (without coroutines):
  *   BondApi.similarityAsync("jlu31", "sganes8") { result ->
- *       result.onSuccess { value -> //use similarity  }
- *             .onFailure { err ->  //show error }
+ *       result.onSuccess { data -> 
+ *           val similarity = data.similarity
+ *           val summary = data.summary
+ *       }
+ *       .onFailure { err ->  //show error }
  *   }
  */
+
+data class SimilarityResult(
+    val similarity: Double,
+    val summary: String,
+    val icebreakers: List<String>
+)
 object BondApi {
 
     // ----------------- CONFIG -----------------
@@ -33,7 +44,7 @@ object BondApi {
 
     // Option B: set the full URL directly (overrides API ID)
     // Example: https://3u8wgak0yk.execute-api.us-east-1.amazonaws.com/prod/similarity
-    @Volatile private var fullUrlOverride: String? = null
+    @Volatile private var fullUrlOverride: String? = "https://3u8wgak0yk.execute-api.us-east-1.amazonaws.com/prod/similarity"
 
     /** Set by API ID (you can call this once in Application.onCreate or anywhere before first call). */
     fun setApiId(id: String, stage: String = "prod", region: String = "us-east-1") {
@@ -50,10 +61,10 @@ object BondApi {
     // ----------------- PUBLIC API -----------------
 
     /**
-     * Suspend function to get similarity.
-     * Returns Double on success, or throws an exception with a clear message.
+     * Suspend function to get similarity and summary.
+     * Returns SimilarityResult on success, or throws an exception with a clear message.
      */
-    suspend fun similarity(profileA: String, profileB: String): Double =
+    suspend fun similarity(profileA: String, profileB: String): SimilarityResult =
         withContext(Dispatchers.IO) {
             val url = buildUrl()
             val body = JSONObject().apply {
@@ -62,14 +73,14 @@ object BondApi {
             }.toString()
 
             val json = postJson(url, body)
-            parseSimilarity(json)
+            parseSimilarityResult(json, profileB) // Pass profileB to get the other user's summary
         }
 
     /**
-     * Callback version if you don’t use coroutines.
+     * Callback version if you don't use coroutines.
      * Runs on a background thread and posts the Result to the callback on the same thread (no main-thread hop).
      */
-    fun similarityAsync(profileA: String, profileB: String, callback: (Result<Double>) -> Unit) {
+    fun similarityAsync(profileA: String, profileB: String, callback: (Result<SimilarityResult>) -> Unit) {
         Thread {
             runCatching {
                 val url = buildUrl()
@@ -78,7 +89,7 @@ object BondApi {
                     put("profileB", profileB)
                 }.toString()
                 val json = postJson(url, body)
-                parseSimilarity(json)
+                parseSimilarityResult(json, profileB) // Pass profileB to get the other user's summary
             }.let(callback)
         }.start()
     }
@@ -131,14 +142,33 @@ object BondApi {
         }.getOrElse { "HTTP $code: $raw" }
     }
 
-    private fun parseSimilarity(json: String): Double {
+    private fun parseSimilarityResult(json: String, otherUserId: String): SimilarityResult {
         val obj = JSONObject(json)
-        if (obj.optBoolean("ok", false).not() && obj.has("error")) {
-            throw IllegalStateException(obj.optString("error"))
+        if (obj.has("ok") && !obj.optBoolean("ok", false)) {
+            throw IllegalStateException(obj.optString("error", "API returned ok: false"))
         }
         if (!obj.has("similarity")) {
             throw IllegalStateException("Response missing 'similarity' field: $json")
         }
-        return obj.getDouble("similarity")
+        
+        val similarity = obj.getDouble("similarity")
+        val summaries = obj.optJSONObject("summaries")
+        
+        // Get the summary for the other user specifically
+        val summary = summaries?.optString(otherUserId) ?: "No summary available"
+        
+        // Extract icebreakers array
+        val icebreakersArray = obj.optJSONArray("icebreakers")
+        val icebreakers = if (icebreakersArray != null) {
+            val icebreakersList = mutableListOf<String>()
+            for (i in 0 until icebreakersArray.length()) {
+                icebreakersList.add(icebreakersArray.getString(i))
+            }
+            icebreakersList
+        } else {
+            listOf("No icebreakers available")
+        }
+        
+        return SimilarityResult(similarity, summary, icebreakers)
     }
 }

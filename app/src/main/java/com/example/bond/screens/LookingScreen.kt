@@ -29,11 +29,14 @@ import androidx.compose.ui.unit.sp
 import com.example.bond.BLEManager
 import com.example.bond.TimeTracker
 import com.example.bond.data.FirestoreRepository
+import com.example.bond.screens.BondApi
 import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 
-data class NearbyUser(val name: String, val similarity: Int, val rssi: Int)
+data class NearbyUser(val name: String, val similarity: Int, val rssi: Int, val summary: String = "No summary available", val icebreakers: List<String> = listOf("No icebreakers available"))
 
 @Composable
 fun LookingScreen(bleManager: BLEManager, timeTracker: TimeTracker) {
@@ -80,17 +83,44 @@ fun LookingScreen(bleManager: BLEManager, timeTracker: TimeTracker) {
                             !myUserData.bonded.contains(detectedUsername) &&
                             !myUserData.incoming.contains(detectedUsername)
                         ) {
-                            mainHandler.post {
-                                val existingIndex = nearbyUsers.indexOfFirst { it.name == detectedUsername }
-                                val updatedUser = NearbyUser(
-                                    name = detectedUsername,
-                                    similarity = (pair.sim_score * 10).toInt(),
-                                    rssi = rssi
-                                )
-                                if (existingIndex == -1) {
-                                    nearbyUsers.add(updatedUser)
-                                } else {
-                                    nearbyUsers[existingIndex] = updatedUser
+                            // Get similarity and summary data using BondApi
+                            CoroutineScope(Dispatchers.IO).launch {
+                                try {
+                                    val result = BondApi.similarity(myID, detectedUsername)
+                                    val score = (result.similarity * 100).toInt()
+
+                                    mainHandler.post {
+                                        val existingIndex = nearbyUsers.indexOfFirst { it.name == detectedUsername }
+                                        val updatedUser = NearbyUser(
+                                            name = detectedUsername,
+                                            similarity = score,
+                                            rssi = rssi,
+                                            summary = result.summary,
+                                            icebreakers = result.icebreakers
+                                        )
+                                        if (existingIndex == -1) {
+                                            nearbyUsers.add(updatedUser)
+                                        } else {
+                                            nearbyUsers[existingIndex] = updatedUser
+                                        }
+                                    }
+                                } catch (e: Exception) {
+                                    Log.e("LookingScreen", "Error getting similarity: ${e.message}")
+                                    mainHandler.post {
+                                        val existingIndex = nearbyUsers.indexOfFirst { it.name == detectedUsername }
+                                        val updatedUser = NearbyUser(
+                                            name = detectedUsername,
+                                            similarity = (pair.sim_score * 10).toInt(),
+                                            rssi = rssi,
+                                            summary = "No summary available",
+                                            icebreakers = listOf("No icebreakers available")
+                                        )
+                                        if (existingIndex == -1) {
+                                            nearbyUsers.add(updatedUser)
+                                        } else {
+                                            nearbyUsers[existingIndex] = updatedUser
+                                        }
+                                    }
                                 }
                             }
                         }
@@ -361,7 +391,7 @@ fun FrontCard(user: NearbyUser, signalColor: Color) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Music • Gaming • Coffee • Travel • Fitness",
+                        text = user.summary,
                         fontSize = 11.sp,
                         color = Color.White.copy(alpha = 0.85f),
                         textAlign = TextAlign.Center,

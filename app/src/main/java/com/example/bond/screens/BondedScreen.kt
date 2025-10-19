@@ -39,7 +39,9 @@ data class BondedUser(
     val name: String,
     val email: String,
     val score: Int = 0,
-    val totalTimeMinutes: Long = 0L
+    val totalTimeMinutes: Long = 0L,
+    val summary: String = "No summary available",
+    val icebreakers: List<String> = listOf("No icebreakers available")
 )
 
 @Composable
@@ -81,11 +83,11 @@ fun BondedScreen() {
                             val pairDoc = querySnapshot.documents.first()
                             val totalTime = pairDoc.getLong("totalTimeMinutes") ?: 0L
 
-                            // Get similarity score using BondApi
+                            // Get similarity score and summary using BondApi
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
-                                    val similarity = BondApi.similarity(myUsername, userData.username)
-                                    val score = (similarity * 100).toInt()
+                                    val result = BondApi.similarity(myUsername, userData.username)
+                                    val score = (result.similarity * 100).toInt()
 
                                     mainHandler.post {
                                         val existingIndex = bondedUsers.indexOfFirst { it.name == userData.username }
@@ -93,7 +95,9 @@ fun BondedScreen() {
                                             name = userData.username,
                                             email = userData.email,
                                             score = score,
-                                            totalTimeMinutes = totalTime
+                                            totalTimeMinutes = totalTime,
+                                            summary = result.summary,
+                                            icebreakers = result.icebreakers
                                         )
 
                                         if (existingIndex == -1) {
@@ -110,7 +114,9 @@ fun BondedScreen() {
                                             name = userData.username,
                                             email = userData.email,
                                             score = 0,
-                                            totalTimeMinutes = totalTime
+                                            totalTimeMinutes = totalTime,
+                                            summary = "No summary available",
+                                            icebreakers = listOf("No icebreakers available")
                                         )
 
                                         if (existingIndex == -1) {
@@ -125,8 +131,8 @@ fun BondedScreen() {
                             // No pair doc yet
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
-                                    val similarity = BondApi.similarity(myUsername, userData.username)
-                                    val score = (similarity * 100).toInt()
+                                    val result = BondApi.similarity(myUsername, userData.username)
+                                    val score = (result.similarity * 100).toInt()
 
                                     mainHandler.post {
                                         bondedUsers.add(
@@ -134,7 +140,9 @@ fun BondedScreen() {
                                                 name = userData.username,
                                                 email = userData.email,
                                                 score = score,
-                                                totalTimeMinutes = 0L
+                                                totalTimeMinutes = 0L,
+                                                summary = result.summary,
+                                                icebreakers = result.icebreakers
                                             )
                                         )
                                     }
@@ -146,7 +154,9 @@ fun BondedScreen() {
                                                 name = userData.username,
                                                 email = userData.email,
                                                 score = 0,
-                                                totalTimeMinutes = 0L
+                                                totalTimeMinutes = 0L,
+                                                summary = "No summary available",
+                                                icebreakers = listOf("No icebreakers available")
                                             )
                                         )
                                     }
@@ -158,8 +168,8 @@ fun BondedScreen() {
                         Log.e("BondedScreen", "Error fetching time data: ${e.message}")
                         CoroutineScope(Dispatchers.IO).launch {
                             try {
-                                val similarity = BondApi.similarity(myUsername, userData.username)
-                                val score = (similarity * 100).toInt()
+                                val result = BondApi.similarity(myUsername, userData.username)
+                                val score = (result.similarity * 100).toInt()
 
                                 mainHandler.post {
                                     bondedUsers.add(
@@ -167,7 +177,9 @@ fun BondedScreen() {
                                             name = userData.username,
                                             email = userData.email,
                                             score = score,
-                                            totalTimeMinutes = 0L
+                                            totalTimeMinutes = 0L,
+                                            summary = result.summary,
+                                            icebreakers = result.icebreakers
                                         )
                                     )
                                 }
@@ -179,7 +191,9 @@ fun BondedScreen() {
                                             name = userData.username,
                                             email = userData.email,
                                             score = 0,
-                                            totalTimeMinutes = 0L
+                                            totalTimeMinutes = 0L,
+                                            summary = "No summary available",
+                                            icebreakers = listOf("No icebreakers available")
                                         )
                                     )
                                 }
@@ -441,7 +455,7 @@ fun BondedFrontCard(user: BondedUser) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Music • Gaming • Coffee • Travel • Fitness",
+                        text = user.summary,
                         fontSize = 11.sp,
                         color = Color.White.copy(alpha = 0.85f),
                         textAlign = TextAlign.Center,
@@ -452,8 +466,11 @@ fun BondedFrontCard(user: BondedUser) {
 
             // Time Together (no box, just text)
             Column(
-                modifier = Modifier.fillMaxWidth(),
-                horizontalAlignment = Alignment.CenterHorizontally
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
                 // Format time
                 val hours = user.totalTimeMinutes / 60
@@ -469,16 +486,26 @@ fun BondedFrontCard(user: BondedUser) {
                     text = timeText,
                     fontSize = 20.sp,
                     color = Color.White,
-                    fontWeight = FontWeight.ExtraBold
+                    fontWeight = FontWeight.ExtraBold,
+                    textAlign = TextAlign.Center
                 )
             }
 
             Spacer(modifier = Modifier.height(6.dp))
 
+            // Time spent together (formatted for bottom text)
+            val hours = user.totalTimeMinutes / 60
+            val minutes = user.totalTimeMinutes % 60
+            val timeText = when {
+                hours > 0 -> "Together for ${hours}h ${minutes}m"
+                minutes > 0 -> "Together for ${minutes}m"
+                else -> "Just started bonding"
+            }
+
             Text(
-                text = "Tap for more",
+                text = timeText,
                 fontSize = 12.sp,
-                color = Color.White.copy(alpha = 0.5f),
+                color = Color.White.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -498,7 +525,7 @@ fun BondedBackCard(
         horizontalAlignment = Alignment.CenterHorizontally,
         verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Ice Breakers Box (filler for now)
+        // Ice Breakers Box
         Card(
             modifier = Modifier
                 .fillMaxWidth()
@@ -516,22 +543,11 @@ fun BondedBackCard(
                 verticalArrangement = Arrangement.Center
             ) {
                 Text(
-                    text = "💬",
-                    fontSize = 48.sp
-                )
-                Spacer(modifier = Modifier.height(12.dp))
-                Text(
-                    text = "Ice Breakers",
-                    fontSize = 20.sp,
-                    fontWeight = FontWeight.Bold,
-                    color = Color.White
-                )
-                Spacer(modifier = Modifier.height(8.dp))
-                Text(
-                    text = "Coming soon!",
+                    text = user.icebreakers.firstOrNull() ?: "No icebreakers available",
                     fontSize = 14.sp,
-                    color = Color.White.copy(alpha = 0.7f),
-                    textAlign = TextAlign.Center
+                    color = Color.White.copy(alpha = 0.9f),
+                    textAlign = TextAlign.Center,
+                    lineHeight = 20.sp
                 )
             }
         }

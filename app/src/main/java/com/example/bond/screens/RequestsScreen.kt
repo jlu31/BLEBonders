@@ -28,13 +28,17 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.bond.data.FirestoreRepository
+import com.example.bond.screens.BondApi
+import com.google.firebase.auth.FirebaseAuth
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
-data class RequestUser(val name: String, val email: String)
+data class RequestUser(val name: String, val email: String, val similarity: Int = 0, val summary: String = "No summary available", val icebreakers: List<String> = listOf("No icebreakers available"))
 
 data class ConfettiParticle(
     val x: Float,
@@ -67,16 +71,41 @@ fun RequestsScreen() {
     // Load incoming users
     LaunchedEffect(Unit) {
         FirestoreRepository.getIncomingUsers { users ->
-            mainHandler.post {
-                incomingUsers.clear()
-                incomingUsers.addAll(
-                    users.map { userData ->
-                        RequestUser(
-                            name = userData.username,
-                            email = userData.email
-                        )
+            val currentUser = FirebaseAuth.getInstance().currentUser
+            val myID = currentUser?.email?.substringBefore("@") ?: ""
+            
+            users.forEach { userData ->
+                // Get similarity and summary data using BondApi
+                CoroutineScope(Dispatchers.IO).launch {
+                    try {
+                        val result = BondApi.similarity(myID, userData.username)
+                        
+                        mainHandler.post {
+                            incomingUsers.add(
+                                RequestUser(
+                                    name = userData.username,
+                                    email = userData.email,
+                                    similarity = (result.similarity * 100).toInt(),
+                                    summary = result.summary,
+                                    icebreakers = result.icebreakers
+                                )
+                            )
+                        }
+                    } catch (e: Exception) {
+                        Log.e("RequestsScreen", "Error getting similarity: ${e.message}")
+                        mainHandler.post {
+                            incomingUsers.add(
+                                RequestUser(
+                                    name = userData.username,
+                                    email = userData.email,
+                                    similarity = 0,
+                                    summary = "No summary available",
+                                    icebreakers = listOf("No icebreakers available")
+                                )
+                            )
+                        }
                     }
-                )
+                }
             }
         }
     }
@@ -311,9 +340,9 @@ fun RequestFrontCard(user: RequestUser) {
                 textAlign = TextAlign.Center
             )
 
-            // Bond Score under name
+            // Similarity Score under name
             Text(
-                text = "Bond Score: 0%",
+                text = "Similarity: ${user.similarity}%",
                 fontSize = 12.sp,
                 color = Color.White.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center
@@ -349,7 +378,7 @@ fun RequestFrontCard(user: RequestUser) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Music • Gaming • Coffee • Travel • Fitness",
+                        text = user.summary,
                         fontSize = 11.sp,
                         color = Color.White.copy(alpha = 0.85f),
                         textAlign = TextAlign.Center,
