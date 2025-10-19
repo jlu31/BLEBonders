@@ -102,7 +102,7 @@ class Login : ComponentActivity() {
                     )
 
                     Text(
-                        text = "Welcome Back",
+                        text = "Login to Bond",
                         fontSize = 42.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White,

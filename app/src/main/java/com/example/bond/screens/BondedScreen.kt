@@ -86,7 +86,7 @@ fun BondedScreen() {
                                 try {
                                     val similarity = BondApi.similarity(myUsername, userData.username)
                                     val score = (similarity * 100).toInt()
-                                    
+
                                     mainHandler.post {
                                         val existingIndex = bondedUsers.indexOfFirst { it.name == userData.username }
                                         val bondedUser = BondedUser(
@@ -103,8 +103,7 @@ fun BondedScreen() {
                                         }
                                     }
                                 } catch (e: Exception) {
-                                    Log.e("BondedScreen", "Error getting similarity between ${myUsername} and ${userData.username}: ${e.message}")
-                                    // Fallback to 0 score on error
+                                    Log.e("BondedScreen", "Error getting similarity: ${e.message}")
                                     mainHandler.post {
                                         val existingIndex = bondedUsers.indexOfFirst { it.name == userData.username }
                                         val bondedUser = BondedUser(
@@ -123,13 +122,12 @@ fun BondedScreen() {
                                 }
                             }
                         } else {
-                            // No pair doc yet, add user with 0 time
-                            // Get similarity score using BondApi
+                            // No pair doc yet
                             CoroutineScope(Dispatchers.IO).launch {
                                 try {
                                     val similarity = BondApi.similarity(myUsername, userData.username)
                                     val score = (similarity * 100).toInt()
-                                    
+
                                     mainHandler.post {
                                         bondedUsers.add(
                                             BondedUser(
@@ -141,8 +139,7 @@ fun BondedScreen() {
                                         )
                                     }
                                 } catch (e: Exception) {
-                                    Log.e("BondedScreen", "Error getting similarity for ${userData.username}: ${e.message}")
-                                    // Fallback to 0 score on error
+                                    Log.e("BondedScreen", "Error getting similarity: ${e.message}")
                                     mainHandler.post {
                                         bondedUsers.add(
                                             BondedUser(
@@ -159,13 +156,11 @@ fun BondedScreen() {
                     }
                     .addOnFailureListener { e ->
                         Log.e("BondedScreen", "Error fetching time data: ${e.message}")
-                        // Add user with 0 time on failure
-                        // Get similarity score using BondApi
                         CoroutineScope(Dispatchers.IO).launch {
                             try {
                                 val similarity = BondApi.similarity(myUsername, userData.username)
                                 val score = (similarity * 100).toInt()
-                                
+
                                 mainHandler.post {
                                     bondedUsers.add(
                                         BondedUser(
@@ -177,8 +172,7 @@ fun BondedScreen() {
                                     )
                                 }
                             } catch (e: Exception) {
-                                Log.e("BondedScreen", "Error getting similarity for ${userData.username}: ${e.message}")
-                                // Fallback to 0 score on error
+                                Log.e("BondedScreen", "Error getting similarity: ${e.message}")
                                 mainHandler.post {
                                     bondedUsers.add(
                                         BondedUser(
@@ -217,12 +211,12 @@ fun BondedScreen() {
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 48.dp, bottom = 16.dp),
+                        .padding(top = 80.dp, bottom = 45.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "Your Bonds",
-                        fontSize = 32.sp,
+                        fontSize = 42.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
@@ -304,7 +298,7 @@ fun BondedCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp)
+            .height(180.dp)
             .scale(scale)
             .graphicsLayer {
                 rotationY = rotation
@@ -324,11 +318,11 @@ fun BondedCard(
                     }
                 )
             },
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.White.copy(alpha = 0.1f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 7.dp)
     ) {
         Box(
             modifier = Modifier
@@ -368,18 +362,17 @@ fun BondedFrontCard(user: BondedUser) {
         modifier = Modifier
             .fillMaxSize()
             .padding(20.dp),
-        verticalAlignment = Alignment.CenterVertically,
-        horizontalArrangement = Arrangement.spacedBy(16.dp)
+        verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left side: Profile and name
+        // Left side: Profile + name + bond score
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
-            modifier = Modifier.width(80.dp)
+            modifier = Modifier.width(100.dp)
         ) {
-            // Profile picture placeholder
+            // Profile picture
             Box(
                 modifier = Modifier
-                    .size(70.dp)
+                    .size(80.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
@@ -393,105 +386,102 @@ fun BondedFrontCard(user: BondedUser) {
             ) {
                 Text(
                     text = user.name.firstOrNull()?.uppercase() ?: "?",
-                    fontSize = 32.sp,
+                    fontSize = 36.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
             }
 
-            Spacer(modifier = Modifier.height(6.dp))
+            Spacer(modifier = Modifier.height(8.dp))
 
             // Username
             Text(
                 text = user.name,
-                fontSize = 14.sp,
+                fontSize = 16.sp,
                 fontWeight = FontWeight.Bold,
                 color = Color.White,
-                textAlign = TextAlign.Center,
-                maxLines = 2
+                textAlign = TextAlign.Center
+            )
+
+            // Bond Score under name (like LookingScreen)
+            Text(
+                text = "Similarities: ${user.score}%",
+                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
             )
         }
 
-        // Right side: Similarities and Score
+        Spacer(modifier = Modifier.width(16.dp))
+
+        // Right side: Similarities + Time Together
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.spacedBy(8.dp)
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Animated Similarities Box
-            AnimatedBox(
-                title = "Similarities",
-                content = listOf("Music", "Gaming", "Coffee", "Travel"),
-                backgroundColor = Color(0xFF10B981)
-            )
+            // Similarities Box
+            Card(
+                modifier = Modifier.fillMaxWidth(),
+                shape = RoundedCornerShape(12.dp),
+                colors = CardDefaults.cardColors(
+                    containerColor = Color(0xFF10B981).copy(alpha = 0.5f)
+                )
+            ) {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(12.dp),
+                    horizontalAlignment = Alignment.CenterHorizontally
+                ) {
+                    Text(
+                        text = "Similarities",
+                        fontSize = 12.sp,
+                        color = Color.White.copy(alpha = 0.9f),
+                        fontWeight = FontWeight.Bold
+                    )
+                    Spacer(modifier = Modifier.height(4.dp))
+                    Text(
+                        text = "Music • Gaming • Coffee • Travel • Fitness",
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.85f),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2
+                    )
+                }
+            }
 
-            // Animated Score Box
-            AnimatedBox(
-                title = "Bond Score",
-                score = user.score,
-                backgroundColor = Color(0xFF3B82F6)
-            )
-        }
-    }
-}
+            // Time Together (no box, just text)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                // Format time
+                val hours = user.totalTimeMinutes / 60
+                val minutes = user.totalTimeMinutes % 60
 
-@Composable
-fun AnimatedBox(
-    title: String,
-    content: List<String> = emptyList(),
-    score: Int = 0,
-    backgroundColor: Color
-) {
-    val infiniteTransition = rememberInfiniteTransition(label = "box_color")
+                val timeText = when {
+                    hours > 0 -> "${hours}h ${minutes}m"
+                    minutes > 0 -> "${minutes}m"
+                    else -> "0m"
+                }
 
-    val animatedAlpha by infiniteTransition.animateFloat(
-        initialValue = 0.4f,
-        targetValue = 0.8f,
-        animationSpec = infiniteRepeatable(
-            animation = tween(2000, easing = LinearEasing),
-            repeatMode = RepeatMode.Reverse
-        ),
-        label = "alpha"
-    )
-
-    Card(
-        modifier = Modifier.fillMaxWidth(),
-        shape = RoundedCornerShape(12.dp),
-        colors = CardDefaults.cardColors(
-            containerColor = backgroundColor.copy(alpha = animatedAlpha)
-        )
-    ) {
-        Column(
-            modifier = Modifier
-                .fillMaxWidth()
-                .padding(12.dp),
-            horizontalAlignment = Alignment.CenterHorizontally
-        ) {
-            Text(
-                text = title,
-                fontSize = 12.sp,
-                color = Color.White.copy(alpha = 0.9f),
-                fontWeight = FontWeight.Bold
-            )
-            Spacer(modifier = Modifier.height(4.dp))
-
-            if (score > 0) {
-                // Score display
                 Text(
-                    text = "$score%",
-                    fontSize = 24.sp,
+                    text = timeText,
+                    fontSize = 20.sp,
                     color = Color.White,
                     fontWeight = FontWeight.ExtraBold
                 )
-            } else {
-                // Similarities display
-                Text(
-                    text = content.joinToString(" • "),
-                    fontSize = 11.sp,
-                    color = Color.White.copy(alpha = 0.85f),
-                    textAlign = TextAlign.Center,
-                    maxLines = 2
-                )
             }
+
+            Spacer(modifier = Modifier.height(6.dp))
+
+            Text(
+                text = "Tap for more",
+                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.5f),
+                textAlign = TextAlign.Center,
+                modifier = Modifier.fillMaxWidth()
+            )
         }
     }
 }
@@ -506,128 +496,79 @@ fun BondedBackCard(
             .fillMaxSize()
             .padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally,
-        verticalArrangement = Arrangement.Center
+        verticalArrangement = Arrangement.SpaceBetween
     ) {
-        // Time spent together section
-        Text(
-            text = "Time Together",
-            fontSize = 18.sp,
-            fontWeight = FontWeight.Bold,
-            color = Color.White.copy(alpha = 0.9f),
-            textAlign = TextAlign.Center
-        )
-
-        Spacer(modifier = Modifier.height(16.dp))
-
-        // Time display and unbond button side by side
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(16.dp),
-            verticalAlignment = Alignment.CenterVertically
+        // Ice Breakers Box (filler for now)
+        Card(
+            modifier = Modifier
+                .fillMaxWidth()
+                .weight(1f),
+            shape = RoundedCornerShape(16.dp),
+            colors = CardDefaults.cardColors(
+                containerColor = Color.Black.copy(alpha = 0.3f)
+            )
         ) {
-            // Time display card
-            Card(
-                modifier = Modifier.weight(1f),
-                shape = RoundedCornerShape(16.dp),
-                colors = CardDefaults.cardColors(
-                    containerColor = Color.Black.copy(alpha = 0.3f)
-                )
-            ) {
-                Column(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .padding(20.dp),
-                    horizontalAlignment = Alignment.CenterHorizontally
-                ) {
-                    // Clock emoji and time side by side
-                    Row(
-                        verticalAlignment = Alignment.CenterVertically,
-                        horizontalArrangement = Arrangement.Center
-                    ) {
-                        Text(
-                            text = "⏱️",
-                            fontSize = 40.sp
-                        )
-                        
-                        Spacer(modifier = Modifier.width(12.dp))
-
-                        // Format time display
-                        val hours = user.totalTimeMinutes / 60
-                        val minutes = user.totalTimeMinutes % 60
-
-                        if (hours > 0) {
-                            Text(
-                                text = "${hours}h ${minutes}m",
-                                fontSize = 36.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF10B981)
-                            )
-                        } else {
-                            Text(
-                                text = "${minutes}m",
-                                fontSize = 36.sp,
-                                fontWeight = FontWeight.Bold,
-                                color = Color(0xFF10B981)
-                            )
-                        }
-                    }
-
-                    Spacer(modifier = Modifier.height(4.dp))
-
-                    Text(
-                        text = if (user.totalTimeMinutes == 0L) {
-                            "Start spending time together!"
-                        } else {
-                            "Spent Together"
-                        },
-                        fontSize = 14.sp,
-                        color = Color.White.copy(alpha = 0.7f),
-                        textAlign = TextAlign.Center
-                    )
-                }
-            }
-
-            // Unbond button
-            Button(
-                onClick = onUnbond,
+            Column(
                 modifier = Modifier
-                    .width(120.dp)
-                    .height(120.dp),
-                colors = ButtonDefaults.buttonColors(
-                    containerColor = Color.Transparent
-                ),
-                contentPadding = PaddingValues(0.dp),
-                shape = RoundedCornerShape(16.dp)
+                    .fillMaxSize()
+                    .padding(20.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
             ) {
-                Box(
-                    modifier = Modifier
-                        .fillMaxSize()
-                        .background(
-                            Brush.linearGradient(
-                                colors = listOf(
-                                    Color(0xFFEF4444),
-                                    Color(0xFFF87171)
-                                )
+                Text(
+                    text = "💬",
+                    fontSize = 48.sp
+                )
+                Spacer(modifier = Modifier.height(12.dp))
+                Text(
+                    text = "Ice Breakers",
+                    fontSize = 20.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
+                Spacer(modifier = Modifier.height(8.dp))
+                Text(
+                    text = "Coming soon!",
+                    fontSize = 14.sp,
+                    color = Color.White.copy(alpha = 0.7f),
+                    textAlign = TextAlign.Center
+                )
+            }
+        }
+
+        Spacer(modifier = Modifier.height(10.dp))
+
+        // Unbond button
+        Button(
+            onClick = onUnbond,
+            modifier = Modifier
+                .fillMaxWidth()
+                .height(30.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent
+            ),
+            contentPadding = PaddingValues(0.dp),
+            shape = RoundedCornerShape(16.dp)
+        ) {
+            Box(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .background(
+                        Brush.linearGradient(
+                            colors = listOf(
+                                Color(0xFFEF4444),
+                                Color(0xFFF87171)
                             )
-                        ),
-                    contentAlignment = Alignment.Center
-                ) {
-                    Column(
-                        horizontalAlignment = Alignment.CenterHorizontally
-                    ) {
-                        Text(
-                            "💔",
-                            fontSize = 32.sp
                         )
-                        Spacer(modifier = Modifier.height(4.dp))
-                        Text(
-                            "Unbond",
-                            fontSize = 14.sp,
-                            fontWeight = FontWeight.Bold,
-                            color = Color.White
-                        )
-                    }
-                }
+                    ),
+                contentAlignment = Alignment.Center
+            ) {
+                Text(
+                    "Unbond 💔",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
         }
     }

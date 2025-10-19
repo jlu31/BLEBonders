@@ -28,17 +28,13 @@ import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import com.example.bond.data.FirestoreRepository
-import com.example.bond.screens.BondApi
-import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CoroutineScope
 import kotlin.math.cos
 import kotlin.math.sin
 import kotlin.random.Random
 
-data class RequestUser(val name: String, val email: String, val similarity: Int = 0)
+data class RequestUser(val name: String, val email: String)
 
 data class ConfettiParticle(
     val x: Float,
@@ -56,6 +52,7 @@ fun RequestsScreen() {
     var showConfetti by remember { mutableStateOf(false) }
     var bondedUsername by remember { mutableStateOf("") }
 
+    // Animated gradient background
     val infiniteTransition = rememberInfiniteTransition(label = "bg")
     val animatedOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -67,39 +64,19 @@ fun RequestsScreen() {
         label = "offset"
     )
 
+    // Load incoming users
     LaunchedEffect(Unit) {
         FirestoreRepository.getIncomingUsers { users ->
-            val currentUser = FirebaseAuth.getInstance().currentUser
-            val myID = currentUser?.email?.substringBefore("@") ?: ""
-            
-            // Fetch similarity scores for each user
-            users.forEach { userData ->
-                CoroutineScope(Dispatchers.IO).launch {
-                    try {
-                        val similarity = BondApi.similarity(myID, userData.username)
-                        val score = (similarity * 100).toInt()
-                        
-                        mainHandler.post {
-                            val requestUser = RequestUser(
-                                name = userData.username,
-                                email = userData.email,
-                                similarity = score
-                            )
-                            incomingUsers.add(requestUser)
-                        }
-                    } catch (e: Exception) {
-                        Log.e("RequestsScreen", "Error getting similarity for ${userData.username}: ${e.message}")
-                        // Fallback to 0 similarity on error
-                        mainHandler.post {
-                            val requestUser = RequestUser(
-                                name = userData.username,
-                                email = userData.email,
-                                similarity = 0
-                            )
-                            incomingUsers.add(requestUser)
-                        }
+            mainHandler.post {
+                incomingUsers.clear()
+                incomingUsers.addAll(
+                    users.map { userData ->
+                        RequestUser(
+                            name = userData.username,
+                            email = userData.email
+                        )
                     }
-                }
+                )
             }
         }
     }
@@ -121,15 +98,16 @@ fun RequestsScreen() {
                 )
         ) {
             Column(modifier = Modifier.fillMaxSize()) {
+                // Header
                 Box(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(top = 48.dp, bottom = 16.dp),
+                        .padding(top = 80.dp, bottom = 45.dp),
                     contentAlignment = Alignment.Center
                 ) {
                     Text(
                         text = "Bond Requests",
-                        fontSize = 32.sp,
+                        fontSize = 42.sp,
                         fontWeight = FontWeight.Bold,
                         color = Color.White
                     )
@@ -174,6 +152,7 @@ fun RequestsScreen() {
             }
         }
 
+        // Confetti overlay
         if (showConfetti) {
             ConfettiAnimation(
                 bondedUsername = bondedUsername,
@@ -193,6 +172,7 @@ fun RequestCard(
     var isPressed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // Flip animation
     val rotation by animateFloatAsState(
         targetValue = if (flipped) 180f else 0f,
         animationSpec = spring(
@@ -202,6 +182,7 @@ fun RequestCard(
         label = "flip"
     )
 
+    // Press animation
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 1.05f else 1f,
         animationSpec = spring(
@@ -211,6 +192,7 @@ fun RequestCard(
         label = "scale"
     )
 
+    // Gradient for card
     val cardGradient = Brush.linearGradient(
         colors = listOf(
             Color(0xFFFF6B6B).copy(alpha = 0.3f),
@@ -221,7 +203,7 @@ fun RequestCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp)
+            .height(180.dp)
             .scale(scale)
             .graphicsLayer {
                 rotationY = rotation
@@ -235,15 +217,17 @@ fun RequestCard(
                         isPressed = false
                     },
                     onTap = {
-                        scope.launch { flipped = !flipped }
+                        scope.launch {
+                            flipped = !flipped
+                        }
                     }
                 )
             },
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.White.copy(alpha = 0.1f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 7.dp)
     ) {
         Box(
             modifier = Modifier
@@ -256,8 +240,10 @@ fun RequestCard(
                 }
             ) {
                 if (rotation <= 90f) {
+                    // Front of card
                     RequestFrontCard(user)
                 } else {
+                    // Back of card
                     RequestBackCard(
                         user = user,
                         onBond = {
@@ -286,17 +272,22 @@ fun RequestFrontCard(user: RequestUser) {
             .padding(20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
+        // Left side: Profile and name
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.width(100.dp)
         ) {
+            // Profile picture placeholder
             Box(
                 modifier = Modifier
                     .size(80.dp)
                     .clip(CircleShape)
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(Color(0xFFFF6B6B), Color(0xFFFFAA00))
+                            colors = listOf(
+                                Color(0xFFFF6B6B),
+                                Color(0xFFFFAA00)
+                            )
                         )
                     ),
                 contentAlignment = Alignment.Center
@@ -311,6 +302,7 @@ fun RequestFrontCard(user: RequestUser) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Username
             Text(
                 text = user.name,
                 fontSize = 16.sp,
@@ -318,54 +310,60 @@ fun RequestFrontCard(user: RequestUser) {
                 color = Color.White,
                 textAlign = TextAlign.Center
             )
+
+            // Bond Score under name
+            Text(
+                text = "Bond Score: 0%",
+                fontSize = 12.sp,
+                color = Color.White.copy(alpha = 0.7f),
+                textAlign = TextAlign.Center
+            )
         }
 
         Spacer(modifier = Modifier.width(16.dp))
 
+        // Right side: Similarities
         Column(
             modifier = Modifier.weight(1f),
-            verticalArrangement = Arrangement.Center
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            // Replaced Bond Request with Similarities
+            // Similarities Box
             Card(
                 modifier = Modifier.fillMaxWidth(),
-                shape = RoundedCornerShape(16.dp),
+                shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color.Black.copy(alpha = 0.3f)
+                    containerColor = Color(0xFFFF6B6B).copy(alpha = 0.5f)
                 )
             ) {
                 Column(
                     modifier = Modifier
                         .fillMaxWidth()
-                        .padding(16.dp),
+                        .padding(10.dp),
                     horizontalAlignment = Alignment.CenterHorizontally
                 ) {
-                    Text("🔍", fontSize = 32.sp)
-                    Spacer(modifier = Modifier.height(8.dp))
                     Text(
                         text = "Similarities",
-                        fontSize = 14.sp,
+                        fontSize = 12.sp,
                         color = Color.White.copy(alpha = 0.9f),
                         fontWeight = FontWeight.Bold
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "You both love music and late-night walks.",
-                        fontSize = 12.sp,
-                        color = Color.White.copy(alpha = 0.7f),
-                        textAlign = TextAlign.Center
+                        text = "Music • Gaming • Coffee • Travel • Fitness",
+                        fontSize = 11.sp,
+                        color = Color.White.copy(alpha = 0.85f),
+                        textAlign = TextAlign.Center,
+                        maxLines = 2
                     )
                 }
             }
 
-            Spacer(modifier = Modifier.height(12.dp))
+            Spacer(modifier = Modifier.height(3.dp))
 
-            // Replaced "Tap to respond" with Bond Score
             Text(
-                text = "Bond Score: ${user.similarity}%",
-                fontSize = 12.sp,
-                color = Color.White.copy(alpha = 0.8f),
-                fontWeight = FontWeight.Medium,
+                text = "Tap to respond",
+                fontSize = 18.sp,
+                color = Color.White.copy(alpha = 0.5f),
                 textAlign = TextAlign.Center,
                 modifier = Modifier.fillMaxWidth()
             )
@@ -392,12 +390,15 @@ fun RequestBackCard(user: RequestUser, onBond: () -> Unit, onIgnore: () -> Unit)
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Bond button
         Button(
             onClick = onBond,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                .height(38.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent
+            ),
             contentPadding = PaddingValues(0.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
@@ -406,23 +407,34 @@ fun RequestBackCard(user: RequestUser, onBond: () -> Unit, onIgnore: () -> Unit)
                     .fillMaxSize()
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(Color(0xFF10B981), Color(0xFF34D399))
+                            colors = listOf(
+                                Color(0xFF10B981),
+                                Color(0xFF34D399)
+                            )
                         )
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Bond 💚", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(
+                    "Bond 💚",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
         }
 
-        Spacer(modifier = Modifier.height(12.dp))
+        Spacer(modifier = Modifier.height(11.dp))
 
+        // Ignore button
         Button(
             onClick = onIgnore,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+                .height(38.dp),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent
+            ),
             contentPadding = PaddingValues(0.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
@@ -431,12 +443,20 @@ fun RequestBackCard(user: RequestUser, onBond: () -> Unit, onIgnore: () -> Unit)
                     .fillMaxSize()
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(Color(0xFFEF4444), Color(0xFFF87171))
+                            colors = listOf(
+                                Color(0xFFEF4444),
+                                Color(0xFFF87171)
+                            )
                         )
                     ),
                 contentAlignment = Alignment.Center
             ) {
-                Text("Ignore", fontSize = 18.sp, fontWeight = FontWeight.Bold, color = Color.White)
+                Text(
+                    "Ignore",
+                    fontSize = 18.sp,
+                    fontWeight = FontWeight.Bold,
+                    color = Color.White
+                )
             }
         }
     }
@@ -493,7 +513,11 @@ fun ConfettiAnimation(bondedUsername: String, onComplete: () -> Unit) {
             particles.forEach { p ->
                 val px = p.x * size.width
                 val py = p.y * size.height
-                drawCircle(color = p.color, radius = 8f, center = Offset(px, py))
+                drawCircle(
+                    color = p.color,
+                    radius = 8f,
+                    center = Offset(px, py)
+                )
             }
         }
 
@@ -504,7 +528,10 @@ fun ConfettiAnimation(bondedUsername: String, onComplete: () -> Unit) {
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Text("🎉", fontSize = 80.sp)
+            Text(
+                text = "🎉",
+                fontSize = 80.sp
+            )
             Spacer(modifier = Modifier.height(16.dp))
             Text(
                 text = "You've bonded!",

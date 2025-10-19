@@ -8,14 +8,23 @@ import androidx.activity.ComponentActivity
 import androidx.activity.compose.setContent
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.animation.animateColorAsState
+import androidx.compose.animation.core.*
 import androidx.compose.foundation.ExperimentalFoundationApi
-import androidx.compose.foundation.layout.fillMaxSize
-import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.background
+import androidx.compose.foundation.gestures.detectHorizontalDragGestures
+import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
+import androidx.compose.foundation.shape.CircleShape
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
+import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
+import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import com.example.bond.data.FirestoreRepository
 import com.example.bond.screens.*
@@ -26,22 +35,19 @@ import kotlinx.coroutines.launch
 
 class MainActivity : ComponentActivity() {
     private lateinit var bleManager: BLEManager
-    private lateinit var timeTracker: TimeTracker // 🔹 ADDED
+    private lateinit var timeTracker: TimeTracker
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         bleManager = BLEManager(this)
-        timeTracker = TimeTracker() // 🔹 ADDED
-        
-        // Initialize BondApi - you'll need to set your actual API ID or URL
-        // BondApi.setApiId("your-api-id-here") // Replace with your actual API ID
-        // OR
+        timeTracker = TimeTracker()
+
         BondApi.setFullUrl("https://3u8wgak0yk.execute-api.us-east-1.amazonaws.com/prod/similarity")
 
         setContent {
             BondTheme {
                 com.example.bond.ui.effects.GlobalTouchRippleOverlay() {
-                    BondApp(bleManager, timeTracker) // 🔹 MODIFIED: Pass timeTracker
+                    BondApp(bleManager, timeTracker)
                 }
             }
         }
@@ -56,17 +62,15 @@ class MainActivity : ComponentActivity() {
     fun stopBLE() {
         bleManager.stopAdvertising()
         bleManager.stopBLEScan()
-        timeTracker.clearCache() // 🔹 ADDED: Clear cache on logout
+        timeTracker.clearCache()
         Log.d("MainActivity", "BLE fully stopped on logout.")
     }
 }
 
-@OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
+@OptIn(ExperimentalFoundationApi::class)
 @Composable
-fun BondApp(bleManager: BLEManager, timeTracker: TimeTracker) { // 🔹 MODIFIED: Added timeTracker param
-    val pages = listOf("Looking", "Requests", "Bonded", "Profile")
-    val pagerState = rememberPagerState(initialPage = 0) { pages.size }
-    val coroutineScope = rememberCoroutineScope()
+fun BondApp(bleManager: BLEManager, timeTracker: TimeTracker) {
+    val pagerState = rememberPagerState(initialPage = 0) { 4 }
 
     val context = androidx.compose.ui.platform.LocalContext.current
     val auth = remember { FirebaseAuth.getInstance() }
@@ -78,7 +82,7 @@ fun BondApp(bleManager: BLEManager, timeTracker: TimeTracker) { // 🔹 MODIFIED
     ) { perms ->
         val granted = perms.all { it.value }
         if (granted) {
-            startGlobalBLE(bleManager, timeTracker, auth, db) // 🔹 MODIFIED: Pass timeTracker
+            startGlobalBLE(bleManager, timeTracker, auth, db)
         } else {
             Log.w("MainActivity", "BLE permissions denied")
         }
@@ -86,7 +90,7 @@ fun BondApp(bleManager: BLEManager, timeTracker: TimeTracker) { // 🔹 MODIFIED
 
     LaunchedEffect(Unit) {
         if (checkPermissions(context)) {
-            startGlobalBLE(bleManager, timeTracker, auth, db) // 🔹 MODIFIED: Pass timeTracker
+            startGlobalBLE(bleManager, timeTracker, auth, db)
         } else {
             permissionLauncher.launch(
                 arrayOf(
@@ -99,38 +103,76 @@ fun BondApp(bleManager: BLEManager, timeTracker: TimeTracker) { // 🔹 MODIFIED
         }
     }
 
-    Scaffold(
-        topBar = { TopAppBar(title = { Text("Bond") }) },
-        bottomBar = {
-            NavigationBar {
-                pages.forEachIndexed { index, title ->
-                    NavigationBarItem(
-                        selected = pagerState.currentPage == index,
-                        onClick = { coroutineScope.launch { pagerState.animateScrollToPage(index) } },
-                        icon = {},
-                        label = { Text(title) }
-                    )
-                }
-            }
-        }
-    ) { innerPadding ->
+    Box(modifier = Modifier.fillMaxSize()) {
+        // Main content
         HorizontalPager(
             state = pagerState,
-            modifier = Modifier
-                .fillMaxSize()
-                .padding(innerPadding)
+            modifier = Modifier.fillMaxSize()
         ) { page ->
             when (page) {
-                0 -> LookingScreen(bleManager, timeTracker) // 🔹 MODIFIED: Pass timeTracker
+                0 -> LookingScreen(bleManager, timeTracker)
                 1 -> RequestsScreen()
                 2 -> BondedScreen()
                 3 -> ProfileScreen()
             }
         }
+
+        // Minimal page indicator at bottom
+        PageIndicator(
+            pageCount = 4,
+            currentPage = pagerState.currentPage,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .padding(bottom = 32.dp)
+        )
     }
 }
 
-// 🔹 MODIFIED: Added timeTracker parameter
+@Composable
+fun PageIndicator(
+    pageCount: Int,
+    currentPage: Int,
+    modifier: Modifier = Modifier
+) {
+    Row(
+        modifier = modifier,
+        horizontalArrangement = Arrangement.spacedBy(8.dp),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(pageCount) { index ->
+            val isSelected = currentPage == index
+
+            // Animate width and color
+            val width by animateDpAsState(
+                targetValue = if (isSelected) 32.dp else 8.dp,
+                animationSpec = spring(
+                    dampingRatio = Spring.DampingRatioMediumBouncy,
+                    stiffness = Spring.StiffnessMedium
+                ),
+                label = "width"
+            )
+
+            val color by animateColorAsState(
+                targetValue = if (isSelected) {
+                    Color(0xFFEC4899) // Pink for selected
+                } else {
+                    Color.White.copy(alpha = 0.3f)
+                },
+                animationSpec = tween(300),
+                label = "color"
+            )
+
+            Box(
+                modifier = Modifier
+                    .width(width)
+                    .height(8.dp)
+                    .clip(CircleShape)
+                    .background(color)
+            )
+        }
+    }
+}
+
 private fun startGlobalBLE(
     bleManager: BLEManager,
     timeTracker: TimeTracker,
@@ -144,10 +186,6 @@ private fun startGlobalBLE(
             val username = doc.getString("username") ?: "Unknown"
             try {
                 Log.d("MainActivity", "Starting BLE globally as $username")
-
-                // 🔹 NOTE: LookingScreen will set up the callback that includes TimeTracker
-                // We don't set it here to avoid it being overwritten
-
                 bleManager.startAdvertising(username)
                 bleManager.startBLEScan()
             } catch (se: SecurityException) {

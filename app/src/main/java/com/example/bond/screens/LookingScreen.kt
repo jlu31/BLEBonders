@@ -29,12 +29,9 @@ import androidx.compose.ui.unit.sp
 import com.example.bond.BLEManager
 import com.example.bond.TimeTracker
 import com.example.bond.data.FirestoreRepository
-import com.example.bond.screens.BondApi
 import com.google.firebase.auth.FirebaseAuth
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.CoroutineScope
 
 data class NearbyUser(val name: String, val similarity: Int, val rssi: Int)
 
@@ -44,6 +41,7 @@ fun LookingScreen(bleManager: BLEManager, timeTracker: TimeTracker) {
     val lastSeen = remember { mutableStateMapOf<String, Long>() }
     val mainHandler = remember { Handler(Looper.getMainLooper()) }
 
+    // Animated gradient background
     val infiniteTransition = rememberInfiniteTransition(label = "bg")
     val animatedOffset by infiniteTransition.animateFloat(
         initialValue = 0f,
@@ -55,50 +53,45 @@ fun LookingScreen(bleManager: BLEManager, timeTracker: TimeTracker) {
         label = "offset"
     )
 
+    // --- Listen for BLE detections ---
     LaunchedEffect(Unit) {
         bleManager.onUserDetected = { detectedUsername, rssi ->
             val now = System.currentTimeMillis()
             lastSeen[detectedUsername] = now
+
             Log.d("LookingScreen", "Detected BLE user: $detectedUsername (rssi=$rssi)")
 
-            timeTracker.updateTimeTracking(detectedUsername) {}
+            timeTracker.updateTimeTracking(detectedUsername) { result ->
+                result.onSuccess { msg ->
+                    Log.d("LookingScreen", "✅ TimeTracker: $msg")
+                }
+                result.onFailure { e ->
+                    Log.d("LookingScreen", "⚠️ TimeTracker: ${e.message}")
+                }
+            }
 
-            val currentUser = FirebaseAuth.getInstance().currentUser
-            val myID = currentUser?.email?.substringBefore("@") ?: ""
+            FirestoreRepository.getOrCreatePairAsync(detectedUsername) { pair ->
+                if (pair != null) {
+                    val currentUser = FirebaseAuth.getInstance().currentUser
+                    val myID = currentUser?.email?.substringBefore("@") ?: ""
 
-            FirestoreRepository.getUserByUsername(myID) { myUserData ->
-                if (myUserData != null &&
-                    !myUserData.bonded.contains(detectedUsername) &&
-                    !myUserData.incoming.contains(detectedUsername)
-                ) {
-                    // Get similarity score using BondApi
-                    CoroutineScope(Dispatchers.IO).launch {
-                        try {
-                            val similarity = BondApi.similarity(myID, detectedUsername)
-                            val score = (similarity * 100).toInt()
-                            
+                    FirestoreRepository.getUserByUsername(myID) { myUserData ->
+                        if (myUserData != null &&
+                            !myUserData.bonded.contains(detectedUsername) &&
+                            !myUserData.incoming.contains(detectedUsername)
+                        ) {
                             mainHandler.post {
                                 val existingIndex = nearbyUsers.indexOfFirst { it.name == detectedUsername }
                                 val updatedUser = NearbyUser(
                                     name = detectedUsername,
-                                    similarity = score,
+                                    similarity = (pair.sim_score * 10).toInt(),
                                     rssi = rssi
                                 )
-                                if (existingIndex == -1) nearbyUsers.add(updatedUser)
-                                else nearbyUsers[existingIndex] = updatedUser
-                            }
-                        } catch (e: Exception) {
-                            Log.e("LookingScreen", "Error getting similarity for $detectedUsername: ${e.message}")
-                            // Fallback to 0 similarity on error
-                            mainHandler.post {
-                                val existingIndex = nearbyUsers.indexOfFirst { it.name == detectedUsername }
-                                val updatedUser = NearbyUser(
-                                    name = detectedUsername,
-                                    similarity = 0,
-                                    rssi = rssi
-                                )
-                                if (existingIndex == -1) nearbyUsers.add(updatedUser)
-                                else nearbyUsers[existingIndex] = updatedUser
+                                if (existingIndex == -1) {
+                                    nearbyUsers.add(updatedUser)
+                                } else {
+                                    nearbyUsers[existingIndex] = updatedUser
+                                }
                             }
                         }
                     }
@@ -107,12 +100,15 @@ fun LookingScreen(bleManager: BLEManager, timeTracker: TimeTracker) {
         }
     }
 
+    // --- Periodic cleanup ---
     LaunchedEffect(Unit) {
         while (true) {
             delay(1000)
             val now = System.currentTimeMillis()
             val expired = lastSeen.filterValues { now - it > 5000 }.keys
+
             if (expired.isNotEmpty()) {
+                Log.d("LookingScreen", "Removing inactive users: $expired")
                 expired.forEach { userName ->
                     lastSeen.remove(userName)
                     nearbyUsers.removeAll { it.name == userName }
@@ -121,6 +117,7 @@ fun LookingScreen(bleManager: BLEManager, timeTracker: TimeTracker) {
         }
     }
 
+    // --- UI ---
     Box(
         modifier = Modifier
             .fillMaxSize()
@@ -137,15 +134,16 @@ fun LookingScreen(bleManager: BLEManager, timeTracker: TimeTracker) {
             )
     ) {
         Column(modifier = Modifier.fillMaxSize()) {
+            // Header
             Box(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(top = 48.dp, bottom = 16.dp),
+                    .padding(top = 80.dp, bottom = 45.dp),
                 contentAlignment = Alignment.Center
             ) {
                 Text(
                     text = "Nearby",
-                    fontSize = 32.sp,
+                    fontSize = 42.sp,
                     fontWeight = FontWeight.Bold,
                     color = Color.White
                 )
@@ -192,6 +190,7 @@ fun BondCard(user: NearbyUser) {
     var isPressed by remember { mutableStateOf(false) }
     val scope = rememberCoroutineScope()
 
+    // Flip animation
     val rotation by animateFloatAsState(
         targetValue = if (flipped) 180f else 0f,
         animationSpec = spring(
@@ -201,18 +200,24 @@ fun BondCard(user: NearbyUser) {
         label = "flip"
     )
 
+    // Press animation
     val scale by animateFloatAsState(
         targetValue = if (isPressed) 1.05f else 1f,
-        animationSpec = spring(),
+        animationSpec = spring(
+            dampingRatio = Spring.DampingRatioMediumBouncy,
+            stiffness = Spring.StiffnessMedium
+        ),
         label = "scale"
     )
 
+    // Signal strength color
     val signalColor = when {
-        user.rssi > -60 -> Color(0xFF10B981)
-        user.rssi > -75 -> Color(0xFFFBBF24)
-        else -> Color(0xFFEF4444)
+        user.rssi > -60 -> Color(0xFF10B981) // strong - green
+        user.rssi > -75 -> Color(0xFFFBBF24) // medium - yellow
+        else -> Color(0xFFEF4444)            // weak - red
     }
 
+    // Gradient for card
     val cardGradient = Brush.linearGradient(
         colors = listOf(
             Color(0xFF8B5CF6).copy(alpha = 0.3f),
@@ -223,7 +228,7 @@ fun BondCard(user: NearbyUser) {
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(200.dp)
+            .height(180.dp)
             .scale(scale)
             .graphicsLayer {
                 rotationY = rotation
@@ -236,14 +241,18 @@ fun BondCard(user: NearbyUser) {
                         tryAwaitRelease()
                         isPressed = false
                     },
-                    onTap = { scope.launch { flipped = !flipped } }
+                    onTap = {
+                        scope.launch {
+                            flipped = !flipped
+                        }
+                    }
                 )
             },
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(
             containerColor = Color.White.copy(alpha = 0.1f)
         ),
-        elevation = CardDefaults.cardElevation(defaultElevation = 8.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 7.dp)
     ) {
         Box(
             modifier = Modifier
@@ -256,8 +265,10 @@ fun BondCard(user: NearbyUser) {
                 }
             ) {
                 if (rotation <= 90f) {
+                    // Front of card
                     FrontCard(user, signalColor)
                 } else {
+                    // Back of card
                     BackCard(user, onFlip = { flipped = false })
                 }
             }
@@ -273,11 +284,12 @@ fun FrontCard(user: NearbyUser, signalColor: Color) {
             .padding(20.dp),
         verticalAlignment = Alignment.CenterVertically
     ) {
-        // Left: profile + name + bond score
+        // Left side: Profile and name
         Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             modifier = Modifier.width(100.dp)
         ) {
+            // Profile picture placeholder
             Box(
                 modifier = Modifier
                     .size(80.dp)
@@ -302,6 +314,7 @@ fun FrontCard(user: NearbyUser, signalColor: Color) {
 
             Spacer(modifier = Modifier.height(8.dp))
 
+            // Username
             Text(
                 text = user.name,
                 fontSize = 16.sp,
@@ -310,8 +323,9 @@ fun FrontCard(user: NearbyUser, signalColor: Color) {
                 textAlign = TextAlign.Center
             )
 
+            // Similarity percentage under name
             Text(
-                text = "Bond Score: ${user.similarity}%",
+                text = "Similarity: ${user.similarity}%",
                 fontSize = 12.sp,
                 color = Color.White.copy(alpha = 0.7f),
                 textAlign = TextAlign.Center
@@ -320,37 +334,17 @@ fun FrontCard(user: NearbyUser, signalColor: Color) {
 
         Spacer(modifier = Modifier.width(16.dp))
 
-        // Right: Signal + Similarities box
+        // Right side: Signal and similarity
         Column(
             modifier = Modifier.weight(1f),
             verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Row(
-                verticalAlignment = Alignment.CenterVertically,
-                horizontalArrangement = Arrangement.End,
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Text(
-                    text = "Signal",
-                    fontSize = 12.sp,
-                    color = Color.White.copy(alpha = 0.7f),
-                    modifier = Modifier.padding(end = 8.dp)
-                )
-                Box(
-                    modifier = Modifier
-                        .size(12.dp)
-                        .clip(CircleShape)
-                        .background(signalColor)
-                )
-            }
-
-            Spacer(modifier = Modifier.weight(1f))
-
+            // Similarities Box
             Card(
                 modifier = Modifier.fillMaxWidth(),
                 shape = RoundedCornerShape(12.dp),
                 colors = CardDefaults.cardColors(
-                    containerColor = Color(0xFF8B5CF6).copy(alpha = 0.3f)
+                    containerColor = Color(0xFF8B5CF6).copy(alpha = 0.5f)
                 )
             ) {
                 Column(
@@ -367,15 +361,41 @@ fun FrontCard(user: NearbyUser, signalColor: Color) {
                     )
                     Spacer(modifier = Modifier.height(4.dp))
                     Text(
-                        text = "Music • Movies • Coffee • Travel • Fitness",
+                        text = "Music • Gaming • Coffee • Travel • Fitness",
                         fontSize = 11.sp,
                         color = Color.White.copy(alpha = 0.85f),
-                        textAlign = TextAlign.Center
+                        textAlign = TextAlign.Center,
+                        maxLines = 2
+                    )
+                }
+            }
+
+            // Signal strength (no box, just text)
+            Column(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalAlignment = Alignment.CenterHorizontally
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.Center
+                ) {
+                    Text(
+                        text = "Distance Broadcast",
+                        fontSize = 15.sp,
+                        color = Color.White.copy(alpha = 0.7f),
+                        modifier = Modifier.padding(end = 8.dp)
+                    )
+                    Box(
+                        modifier = Modifier
+                            .size(12.dp)
+                            .clip(CircleShape)
+                            .background(signalColor)
                     )
                 }
             }
 
             Spacer(modifier = Modifier.height(6.dp))
+
             Text(
                 text = "Tap to connect",
                 fontSize = 12.sp,
@@ -406,12 +426,17 @@ fun BackCard(user: NearbyUser, onFlip: () -> Unit) {
 
         Spacer(modifier = Modifier.height(24.dp))
 
+        // Ask to Bond button
         Button(
-            onClick = { FirestoreRepository.updStatus(user.name, true) },
+            onClick = {
+                FirestoreRepository.updStatus(user.name, true)
+            },
             modifier = Modifier
                 .fillMaxWidth()
                 .height(56.dp),
-            colors = ButtonDefaults.buttonColors(containerColor = Color.Transparent),
+            colors = ButtonDefaults.buttonColors(
+                containerColor = Color.Transparent
+            ),
             contentPadding = PaddingValues(0.dp),
             shape = RoundedCornerShape(16.dp)
         ) {
@@ -420,7 +445,10 @@ fun BackCard(user: NearbyUser, onFlip: () -> Unit) {
                     .fillMaxSize()
                     .background(
                         Brush.linearGradient(
-                            colors = listOf(Color(0xFF8B5CF6), Color(0xFFEC4899))
+                            colors = listOf(
+                                Color(0xFF8B5CF6),
+                                Color(0xFFEC4899)
+                            )
                         )
                     ),
                 contentAlignment = Alignment.Center
